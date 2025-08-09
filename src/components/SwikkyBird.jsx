@@ -1,0 +1,331 @@
+/* eslint-disable */
+import React, { useEffect, useRef, useState } from 'react';
+import girlImgUrl from './girl.png';
+import pugImgUrl from './pug.png';
+import frenchieImgUrl from './frenchie.png';
+import flapSound from './flap.wav';
+import barkPugSound from './bark_pug.wav';
+import barkFrenchieSound from './bark_frenchie.wav';
+
+export default function SwikkyBird() {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(null);
+
+  // World/game state
+  const worldRef = useRef({
+    w: 420,
+    h: 680,
+    ground: 640,
+    gravity: 0.45,
+    jumpV: -7.8,
+    gap: 160,
+    vapeWidth: 78,
+    speed: 2.7,
+    tokenChance: 0.55,
+    frenchieChance: 0.25,
+  });
+
+  const girlRef = useRef({ x: 110, y: 260, r: 18, vy: 0, drawSize: 56 });
+  const vapesRef = useRef([]);     // { x, topH, passed }
+  const tokensRef = useRef([]);    // { x, y, type:'pug'|'frenchie', taken }
+
+  const stateRef = useRef({ running: false, paused: false, gameOver: false, score: 0, best: 0, time: 0 });
+
+  // Images
+  const assetsRef = useRef({ girl: new Image(), pug: new Image(), frenchie: new Image() });
+
+  // Audio
+  const audioRef = useRef({
+    flap: new Audio(flapSound),
+    pug: new Audio(barkPugSound),
+    frenchie: new Audio(barkFrenchieSound),
+    unlocked: false,
+  });
+
+  const [uiTick, setUiTick] = useState(0);
+
+  // ---------- Helpers ----------
+  const circleRectCollide = (cx, cy, r, rx, ry, rw, rh) => {
+    const testX = Math.max(rx, Math.min(cx, rx + rw));
+    const testY = Math.max(ry, Math.min(cy, ry + rh));
+    const dx = cx - testX;
+    const dy = cy - testY;
+    return dx * dx + dy * dy <= r * r;
+  };
+
+  const circleCircleCollide = (x1, y1, r1, x2, y2, r2) => {
+    const dx = x1 - x2;
+    const dy = y1 - y2;
+    return dx * dx + dy * dy <= (r1 + r2) * (r1 + r2);
+  };
+
+  const startGame = () => {
+    const s = stateRef.current;
+    if (s.gameOver) resetGame();
+    if (!s.running) {
+      s.running = true;
+      s.paused = false;
+      loop();
+    }
+  };
+
+  const resetGame = () => {
+    const s = stateRef.current; const g = girlRef.current;
+    s.running = false; s.paused = false; s.gameOver = false; s.score = 0; s.time = 0;
+    g.y = 260; g.vy = 0;
+    vapesRef.current = []; tokensRef.current = [];
+    setUiTick(v => v + 1);
+  };
+
+  const gameOver = () => {
+    const s = stateRef.current;
+    s.gameOver = true; s.running = false;
+    if (s.score > s.best) { s.best = s.score; try { localStorage.setItem('swikky_best', String(s.best)); } catch {} }
+    cancelAnimationFrame(rafRef.current);
+    setUiTick(v => v + 1);
+  };
+
+  const safePlay = (audio) => {
+    if (!audio || !audioRef.current.unlocked) return;
+    try { audio.currentTime = 0; audio.play(); } catch {}
+  };
+
+  const flap = () => {
+    const s = stateRef.current; const g = girlRef.current;
+    if (!s.running && !s.gameOver) startGame();
+    if (s.gameOver || s.paused) return;
+    g.vy = worldRef.current.jumpV;
+    safePlay(audioRef.current.flap);
+  };
+
+  const unlockAudio = () => {
+    const a = audioRef.current; if (a.unlocked) return;
+    [a.flap, a.pug, a.frenchie].forEach(snd => {
+      if (!snd) return;
+      snd.preload = 'auto';
+      snd.playsInline = true;
+      try { snd.load(); } catch {}
+    });
+    a.unlocked = true;
+  };
+
+  const togglePause = () => {
+    const s = stateRef.current; if (!s.running || s.gameOver) return;
+    s.paused = !s.paused; if (!s.paused) loop(); setUiTick(v => v + 1);
+  };
+
+  const spawnVapes = () => {
+    const w = worldRef.current; const minTop = 80; const maxTop = w.ground - (w.gap + 120);
+    const topH = Math.floor(minTop + Math.random() * (maxTop - minTop));
+    vapesRef.current.push({ x: w.w + 20, topH, passed: false });
+
+    // Maybe spawn a token roughly in the gap
+    if (Math.random() < w.tokenChance) {
+      const isFrenchie = Math.random() < w.frenchieChance;
+      const gapY = topH + w.gap * (0.35 + Math.random() * 0.3);
+      tokensRef.current.push({ x: w.w + 40 + Math.random() * 60, y: gapY, type: isFrenchie ? 'frenchie' : 'pug', taken: false });
+    }
+  };
+
+  // ---------- Drawing ----------
+  const drawVape = (ctx, x, y, h) => {
+    const w = worldRef.current.vapeWidth;
+    ctx.save();
+    // Body
+    ctx.fillStyle = '#5b6b75';
+    ctx.fillRect(x, y + 12, w, Math.max(0, h - 24));
+    // Gradient accent stripe
+    const grad = ctx.createLinearGradient(x, y, x + w, y);
+    grad.addColorStop(0, '#8aa6b6');
+    grad.addColorStop(1, '#5b6b75');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x + 10, y + 16, w - 20, Math.max(0, h - 32));
+    // Mouthpiece
+    ctx.fillStyle = '#2f3a40';
+    ctx.fillRect(x + w * 0.25, y, w * 0.5, 12);
+    // LED ring
+    ctx.beginPath();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#9ae6b4';
+    ctx.arc(x + w / 2, y + h - 20, 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const draw = (ctx) => {
+    const { w, h, ground } = worldRef.current; const s = stateRef.current; const g = girlRef.current;
+
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#b3e5ff'); sky.addColorStop(1, '#e9f6ff');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+
+    // Ground
+    ctx.fillStyle = '#89d07a'; ctx.fillRect(0, ground, w, h - ground);
+    for (let i = 0; i < w / 20; i++) { ctx.fillStyle = i % 2 ? '#96db87' : '#7bc46e'; ctx.fillRect(i * 20, ground - 6, 20, 6); }
+
+    // Vapes (top & bottom columns with a gap)
+    vapesRef.current.forEach((v) => {
+      const gapTop = v.topH + worldRef.current.gap;
+      drawVape(ctx, v.x, 0, v.topH);                // top
+      drawVape(ctx, v.x, gapTop, ground - gapTop);  // bottom
+    });
+
+    // Tokens
+    tokensRef.current.forEach(t => {
+      if (t.taken) return;
+      const img = t.type === 'frenchie' ? assetsRef.current.frenchie : assetsRef.current.pug;
+      const size = 28;
+      if (img && img.complete) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 6;
+        ctx.drawImage(img, t.x - size / 2, t.y - size / 2, size, size);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = t.type === 'frenchie' ? '#444' : '#666';
+        ctx.beginPath(); ctx.arc(t.x, t.y, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    // Girl
+    const sz = g.drawSize; const girl = assetsRef.current.girl;
+    if (girl && girl.complete) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 8;
+      const tilt = Math.max(-0.4, Math.min(0.4, g.vy * 0.05));
+      ctx.translate(g.x, g.y); ctx.rotate(tilt);
+      ctx.drawImage(girl, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#ff6fae'; ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // HUD
+    ctx.save(); ctx.fillStyle = '#0f172a'; ctx.font = 'bold 28px ui-sans-serif, system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(`Score: ${s.score}`, 16, 36);
+    ctx.font = '14px ui-sans-serif, system-ui'; ctx.fillText('Pug = +1   Frenchie = +2', 16, 58);
+    ctx.textAlign = 'right'; ctx.fillText(`Best: ${s.best}`, w - 16, 36); ctx.restore();
+
+    // Overlays
+    if (!s.running && !s.gameOver) centerBanner(ctx, 'SWIKKY BIRD', 'Tap/Space to Start and AVOID the Vape!', '#111827');
+    if (s.paused) centerBanner(ctx, 'Paused', 'Press P to resume', '#111827');
+    if (s.gameOver) centerBanner(ctx, 'You Vaped! Game Over!', `Final: ${s.score} • Best: ${s.best}`, '#7f1d1d');
+  };
+
+  const centerBanner = (ctx, title, subtitle, color) => {
+    const { w, h } = worldRef.current; ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(w / 2 - 160, h / 2 - 90, 320, 140);
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 2; ctx.strokeRect(w / 2 - 160, h / 2 - 90, 320, 140);
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.font = 'bold 28px ui-sans-serif, system-ui';
+    ctx.fillText(title, w / 2, h / 2 - 30); ctx.font = '16px ui-sans-serif, system-ui'; ctx.fillText(subtitle, w / 2, h / 2 + 10);
+    ctx.restore();
+  };
+
+  // ---------- Logic ----------
+  const logic = () => {
+    const w = worldRef.current; const s = stateRef.current; const g = girlRef.current;
+    s.time += 1;
+
+    // Gravity
+    g.vy += w.gravity; g.y += g.vy;
+
+    // Floor/ceiling
+    if (g.y + g.r >= w.ground) { g.y = w.ground - g.r; gameOver(); return; }
+    if (g.y - g.r <= 0) { g.y = g.r; g.vy = 0.5; }
+
+    // Spawn vapes
+    if (vapesRef.current.length === 0 || vapesRef.current[vapesRef.current.length - 1].x < w.w - 240) spawnVapes();
+
+    // Move vapes + collisions + pass scoring
+    for (let i = vapesRef.current.length - 1; i >= 0; i--) {
+      const v = vapesRef.current[i]; v.x -= w.speed; const gapTop = v.topH + w.gap;
+      const hitTop = circleRectCollide(g.x, g.y, g.r, v.x, 0, w.vapeWidth, v.topH);
+      const hitBot = circleRectCollide(g.x, g.y, g.r, v.x, gapTop, w.vapeWidth, w.ground - gapTop);
+      if (hitTop || hitBot) { gameOver(); return; }
+      if (!v.passed && v.x + w.vapeWidth < g.x - g.r) { v.passed = true; s.score += 1; }
+      if (v.x + w.vapeWidth < -40) vapesRef.current.splice(i, 1);
+    }
+
+    // Move tokens + pickups
+    for (let i = tokensRef.current.length - 1; i >= 0; i--) {
+      const t = tokensRef.current[i]; t.x -= w.speed;
+      const collided = circleCircleCollide(g.x, g.y, g.r * 0.85, t.x, t.y, 12);
+      if (!t.taken && collided) { t.taken = true; const isF = t.type === 'frenchie'; s.score += isF ? 2 : 1; safePlay(isF ? audioRef.current.frenchie : audioRef.current.pug); }
+      if (t.x < -40 || t.taken) tokensRef.current.splice(i, 1);
+    }
+  };
+
+  const loop = () => {
+    const s = stateRef.current; const canvas = canvasRef.current; const ctx = canvas.getContext('2d');
+    if (!s.running || s.paused) return; logic(); draw(ctx); rafRef.current = requestAnimationFrame(loop);
+  };
+
+  // ---------- Setup ----------
+  useEffect(() => {
+    const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const w = worldRef.current;
+
+    // HiDPI scale
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = w.w * ratio; canvas.height = w.h * ratio; canvas.style.width = w.w + 'px'; canvas.style.height = w.h + 'px'; ctx.scale(ratio, ratio);
+
+    // Load best
+    try { const saved = Number(localStorage.getItem('swikky_best') || 0); if (!Number.isNaN(saved)) stateRef.current.best = saved; } catch {}
+
+    // Load images
+    assetsRef.current.girl.src = girlImgUrl;
+    assetsRef.current.pug.src = pugImgUrl;
+    assetsRef.current.frenchie.src = frenchieImgUrl;
+
+    // Prepare audio
+    [audioRef.current.flap, audioRef.current.pug, audioRef.current.frenchie].forEach((a) => { if (!a) return; a.preload = 'auto'; a.playsInline = true; a.volume = 0.65; });
+
+    // Initial draw
+    draw(ctx);
+
+    const onKey = (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); unlockAudio(); flap(); }
+      else if (e.key.toLowerCase() === 'p') { togglePause(); }
+      else if (e.key.toLowerCase() === 'r') { resetGame(); }
+    };
+    const onClick = () => { unlockAudio(); flap(); };
+
+    window.addEventListener('keydown', onKey);
+    canvas.addEventListener('pointerdown', onClick);
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      canvas.removeEventListener('pointerdown', onClick);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen w-full bg-slate-50 flex flex-col items-center py-6">
+      <h1 className="text-3xl font-bold tracking-tight mb-2">Swikky Bird</h1>
+      <p className="text-sm text-slate-600 mb-4">Click/Tap/Space to jump · P to pause · R to reset</p>
+
+      <div className="relative">
+        <canvas
+          ref={canvasRef}
+          className="rounded-2xl shadow-xl border border-slate-200 select-none touch-manipulation bg-white"
+          width={420}
+          height={680}
+        />
+
+        {/* Mobile controls */}
+        <div className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-3 pointer-events-none">
+          <button onClick={() => { unlockAudio(); flap(); }} className="pointer-events-auto px-4 py-2 rounded-2xl shadow bg-pink-500 text-white font-semibold hover:brightness-110 active:scale-95">Jump</button>
+          <button onClick={togglePause} className="pointer-events-auto px-4 py-2 rounded-2xl shadow bg-slate-800 text-white font-semibold hover:brightness-110 active:scale-95">Pause</button>
+          <button onClick={resetGame} className="pointer-events-auto px-4 py-2 rounded-2xl shadow bg-slate-200 text-slate-800 font-semibold hover:brightness-110 active:scale-95">Restart</button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-3 text-center text-sm">
+        <div className="px-3 py-2 rounded-xl bg-white shadow border"><div className="text-xs font-semibold">Token Points</div><div>Pug = +1</div><div>Frenchie = +2</div></div>
+        <div className="px-3 py-2 rounded-xl bg-white shadow border"><div>Avoid the Vapes! ☠ </div></div>
+      </div>
+
+      <div aria-hidden className="hidden">{uiTick}</div>
+    </div>
+  );
+}
