@@ -1,17 +1,17 @@
 {
   "files": {
     "main.css": "/swikky_bird/static/css/main.54643c0a.css",
-    "main.js": "/swikky_bird/static/js/main.0a06a400.js",
+    "main.js": "/swikky_bird/static/js/main.c29fc484.js",
     "static/media/pug.png": "/swikky_bird/static/media/pug.51955818229e2d9ba521.png",
-    "static/media/bark_pug.wav": "/swikky_bird/static/media/bark_pug.c77758ff6921cfbcbb0e.wav",
     "static/media/girl.png": "/swikky_bird/static/media/girl.9e44549673085700b0d6.png",
     "static/media/frenchie.png": "/swikky_bird/static/media/frenchie.585d9244cc77e94039b8.png",
-    "static/media/bark_frenchie.wav": "/swikky_bird/static/media/bark_frenchie.08acbb337405acb548d9.wav",
-    "static/media/flap.wav": "/swikky_bird/static/media/flap.f3a1f326b73cc7b37e6f.wav",
+    "static/media/bark_pug.wav": "/swikky_bird/static/media/bark_pug.78df0ee48e590bf2c8f0.wav",
+    "static/media/flap.wav": "/swikky_bird/static/media/flap.1cc79725263f927b7081.wav",
+    "static/media/bark_frenchie.wav": "/swikky_bird/static/media/bark_frenchie.f224f7be5a460ae06203.wav",
     "index.html": "/swikky_bird/index.html"
   },
   "entrypoints": [
     "static/css/main.54643c0a.css",
-    "static/js/main.0a06a400.js"
+    "static/js/main.c29fc484.js"
   ]
 }
